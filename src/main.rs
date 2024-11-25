@@ -1,27 +1,22 @@
+mod server;
+mod tcp;
 mod thread_pool;
 
-use std::net::{TcpListener, TcpStream};
+use clap::Parser;
 
-use thread_pool::ThreadPool;
+use server::Server;
 
-fn handle_client(stream: TcpStream) {
-    println!("Hello");
+/// Server for Project Flight
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// Number of threads for TCP server
+    #[arg(short, long, default_value_t = 4)]
+    tcp_threads: usize,
 }
 
 fn main() -> std::io::Result<()> {
-    let listener = TcpListener::bind("127.0.0.1:5000")?;
-    let thread_pool = ThreadPool::new(4);
+    let args = Args::parse();
 
-    for stream in listener.incoming() {
-        if let Ok(stream) = stream {
-            println!("Client connected");
-            thread_pool.execute(|| {
-                handle_client(stream);
-            })
-        } else {
-            println!("Connection failed");
-        }
-    }
-    Ok(())
+    Server::start(args.tcp_threads)
 }
-
