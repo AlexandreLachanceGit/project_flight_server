@@ -14,10 +14,14 @@ struct Args {
     /// Number of threads for TCP server
     #[arg(short, long, default_value_t = 4)]
     tcp_threads: usize,
+
+    /// Port for TCP server
+    #[arg(short = 'p', long, default_value_t = 4001)]
+    tcp_port: u16,
 }
 
 fn main() -> std::io::Result<()> {
     let args = Args::parse();
 
-    Server::start(args.tcp_threads)
+    Server::start(args.tcp_threads, args.tcp_port)
 }

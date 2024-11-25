@@ -1,13 +1,15 @@
 use crate::{id, thread_pool::ThreadPool};
-use std::net::{TcpListener, TcpStream};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 
 fn handle_client(stream: TcpStream) {
     let client_id = id::new_id();
     println!("Hello Client: {client_id}");
 }
 
-pub fn start(nb_threads: usize) -> std::io::Result<()> {
-    let listener = TcpListener::bind("127.0.0.1:5000")?;
+pub fn start(nb_threads: usize, port: u16) -> std::io::Result<()> {
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+
+    let listener = TcpListener::bind(addr)?;
     let thread_pool = ThreadPool::new(nb_threads);
 
     for stream in listener.incoming() {
