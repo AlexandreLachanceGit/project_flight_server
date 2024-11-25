@@ -1,8 +1,9 @@
-use crate::thread_pool::ThreadPool;
+use crate::{id, thread_pool::ThreadPool};
 use std::net::{TcpListener, TcpStream};
 
 fn handle_client(stream: TcpStream) {
-    println!("Hello");
+    let client_id = id::new_id();
+    println!("Hello Client: {client_id}");
 }
 
 pub fn start(nb_threads: usize) -> std::io::Result<()> {
