@@ -1,9 +1,14 @@
+#[macro_use]
+extern crate log;
+extern crate simplelog;
+
 mod id;
 mod server;
 mod tcp;
 mod thread_pool;
 
 use clap::Parser;
+use simplelog::{ColorChoice, Config, LevelFilter, TermLogger, TerminalMode};
 
 use server::Server;
 
@@ -16,11 +21,19 @@ struct Args {
     tcp_threads: usize,
 
     /// Port for TCP server
-    #[arg(short = 'p', long, default_value_t = 4001)]
+    #[arg(short = 'p', long, default_value_t = 5000)]
     tcp_port: u16,
 }
 
 fn main() -> std::io::Result<()> {
+    TermLogger::init(
+        LevelFilter::Trace,
+        Config::default(),
+        TerminalMode::Mixed,
+        ColorChoice::Auto,
+    )
+    .unwrap();
+
     let args = Args::parse();
 
     Server::start(args.tcp_threads, args.tcp_port)

@@ -3,7 +3,7 @@ use std::net::{SocketAddr, TcpListener, TcpStream};
 
 fn handle_client(stream: TcpStream) {
     let client_id = id::new_id();
-    println!("Hello Client: {client_id}");
+    info!("Client {client_id} connected");
 }
 
 pub fn start(nb_threads: usize, port: u16) -> std::io::Result<()> {
@@ -14,14 +14,11 @@ pub fn start(nb_threads: usize, port: u16) -> std::io::Result<()> {
 
     for stream in listener.incoming() {
         match stream {
-            Ok(stream) => {
-                println!("Client connected");
-                thread_pool.execute(|| {
-                    handle_client(stream);
-                })
-            }
+            Ok(stream) => thread_pool.execute(|| {
+                handle_client(stream);
+            }),
             Err(err) => {
-                println!("Connection failed: {err}");
+                error!("Connection failed: {err}");
             }
         }
     }
