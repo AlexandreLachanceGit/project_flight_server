@@ -3,6 +3,7 @@ extern crate log;
 extern crate simplelog;
 
 mod id;
+mod message;
 mod server;
 mod tcp;
 mod thread_pool;
