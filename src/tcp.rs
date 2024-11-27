@@ -1,6 +1,6 @@
 use crate::{id, thread_pool::ThreadPool};
 use std::{
-    io::{BufReader, Read, Write},
+    io::Write,
     net::{SocketAddr, TcpListener, TcpStream},
 };
 
