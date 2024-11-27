@@ -6,9 +6,9 @@ enum MessageType {
     Unsupported,
 }
 
-impl Into<MessageType> for u8 {
-    fn into(self) -> MessageType {
-        match self {
+impl From<u8> for MessageType {
+    fn from(val: u8) -> Self {
+        match val {
             0 => MessageType::Ping,
             1 => MessageType::Data,
             2 => MessageType::Disconnect,
