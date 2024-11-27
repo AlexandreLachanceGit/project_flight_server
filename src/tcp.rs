@@ -1,9 +1,13 @@
 use crate::{id, thread_pool::ThreadPool};
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::{
+    io::{BufReader, Read, Write},
+    net::{SocketAddr, TcpListener, TcpStream},
+};
 
-fn handle_client(stream: TcpStream) {
+fn handle_client(mut stream: TcpStream) {
     let client_id = id::new_id();
     info!("Client {client_id} connected");
+    stream.write(&[1, 2, 3]).unwrap();
 }
 
 pub fn start(nb_threads: usize, port: u16) -> std::io::Result<()> {
