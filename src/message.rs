@@ -1,18 +1,26 @@
+#[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MessageType {
     Ping,
     Data,
     Disconnect,
-    Unsupported,
 }
 
-impl From<u8> for MessageType {
-    fn from(val: u8) -> Self {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeserializeError {
+    UnsupportedMessageType,
+    Format(&'static str),
+}
+
+impl TryFrom<u8> for MessageType {
+    type Error = DeserializeError;
+
+    fn try_from(val: u8) -> Result<Self, Self::Error> {
         match val {
-            0 => MessageType::Ping,
-            1 => MessageType::Data,
-            2 => MessageType::Disconnect,
-            _ => MessageType::Unsupported,
+            0 => Ok(MessageType::Ping),
+            1 => Ok(MessageType::Data),
+            2 => Ok(MessageType::Disconnect),
+            _ => Err(DeserializeError::UnsupportedMessageType),
         }
     }
 }
@@ -23,49 +31,59 @@ impl From<MessageType> for u8 {
             MessageType::Ping => 0,
             MessageType::Data => 1,
             MessageType::Disconnect => 2,
-            MessageType::Unsupported => u8::MAX,
         }
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-struct Message {
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct Message {
+    header: Header,
+    payload: Vec<u8>,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+struct Header {
     msg_type: MessageType,
     payload_size: u16,
-    payload: Vec<u8>,
+}
+
+impl Header {
+    const SIZE: usize = 3;
 }
 
 impl Message {
     /// Serialize a Message into a byte array
     pub fn serialize(&self) -> Vec<u8> {
-        // Initialize vector with header size + payload size
-        let mut res = Vec::with_capacity(3 + self.payload_size as usize);
+        let mut res = Vec::with_capacity(Header::SIZE + self.header.payload_size as usize);
 
-        res.push(self.msg_type.into());
-        res.extend_from_slice(&self.payload_size.to_le_bytes()[0..2]);
+        res.push(self.header.msg_type.into());
+        res.extend_from_slice(&self.header.payload_size.to_le_bytes()[0..2]);
         res.extend_from_slice(&self.payload);
 
         res
     }
 
     /// Deserialize a byte array into a Message
-    pub fn deserialize(data: &[u8]) -> Result<Self, String> {
-        // Check if the input data is at least 3 bytes (header size)
-        if data.len() < 3 {
-            return Err("Data too short to deserialize".into());
+    pub fn deserialize(data: &[u8]) -> Result<Self, DeserializeError> {
+        if data.len() < Header::SIZE {
+            return Err(DeserializeError::Format("Data too short to deserialize"));
         }
 
-        let msg_type = data[0].into();
+        let msg_type = data[0].try_into()?;
         let payload_size = u16::from_le_bytes([data[1], data[2]]);
 
-        if data.len() != (payload_size as usize + 3) {
-            return Err("Data length does not match payload size".into());
+        if data.len() != (payload_size as usize + Header::SIZE) {
+            return Err(DeserializeError::Format(
+                "Data length does not match payload size",
+            ));
         }
-        let payload = data[3..].to_vec();
+        let payload = data[Header::SIZE..].to_vec();
 
         Ok(Self {
-            msg_type,
-            payload_size,
+            header: Header {
+                msg_type,
+                payload_size,
+            },
             payload,
         })
     }
@@ -79,8 +97,10 @@ mod tests {
     /// Basic serialization
     fn test_serialize() {
         let message = Message {
-            msg_type: MessageType::Ping,
-            payload_size: 4,
+            header: Header {
+                msg_type: MessageType::Ping,
+                payload_size: 4,
+            },
             payload: vec![0xde, 0xad, 0xbe, 0xef],
         };
 
@@ -93,8 +113,10 @@ mod tests {
     fn test_deserialize_valid_data() {
         let data = vec![0, 4, 0, 0xde, 0xad, 0xbe, 0xef];
         let expected = Message {
-            msg_type: MessageType::Ping,
-            payload_size: 4,
+            header: Header {
+                msg_type: MessageType::Ping,
+                payload_size: 4,
+            },
             payload: vec![0xde, 0xad, 0xbe, 0xef],
         };
 
@@ -106,8 +128,10 @@ mod tests {
     /// Message serialized and deserialized should be equal
     fn test_serialize_and_deserialize() {
         let message = Message {
-            msg_type: MessageType::Ping,
-            payload_size: 4,
+            header: Header {
+                msg_type: MessageType::Ping,
+                payload_size: 4,
+            },
             payload: vec![0xde, 0xad, 0xbe, 0xef],
         };
 
@@ -123,7 +147,10 @@ mod tests {
         let data = vec![0, 4];
         let result = Message::deserialize(&data);
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), "Data too short to deserialize");
+        assert_eq!(
+            result.unwrap_err(),
+            DeserializeError::Format("Data too short to deserialize")
+        );
     }
 
     #[test]
@@ -134,7 +161,7 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(
             result.unwrap_err(),
-            "Data length does not match payload size"
+            DeserializeError::Format("Data length does not match payload size")
         );
     }
 }
