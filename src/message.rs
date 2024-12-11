@@ -61,9 +61,21 @@ struct Header {
 
 impl Header {
     const SIZE: usize = 8;
+    const CURRENT_VERSION: u16 = 0;
 }
 
 impl MessagePacket {
+    pub fn new(message: Message) -> MessagePacket {
+        MessagePacket {
+            header: Header {
+                timestamp: crate::time::get_time(),
+                version: 0,
+                payload_size: 0, // overwritten at serialization
+            },
+            payload: message,
+        }
+    }
+
     /// Serialize a Message into a byte array
     pub fn serialize(&self) -> Vec<u8> {
         let payload = &bincode::serialize(&self.payload).unwrap();
@@ -72,7 +84,7 @@ impl MessagePacket {
 
         res.extend_from_slice(&self.header.timestamp.to_le_bytes());
         res.extend_from_slice(&self.header.version.to_le_bytes());
-        res.extend_from_slice(&self.header.payload_size.to_le_bytes());
+        res.extend_from_slice(&(payload.len() as u16).to_le_bytes());
         res.extend_from_slice(payload);
 
         res

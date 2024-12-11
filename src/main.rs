@@ -7,6 +7,7 @@ mod message;
 mod server;
 mod tcp;
 mod thread_pool;
+mod time;
 
 use clap::Parser;
 use simplelog::{ColorChoice, Config, LevelFilter, TermLogger, TerminalMode};
