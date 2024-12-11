@@ -1,64 +1,79 @@
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum MessageType {
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+enum Message {
     Ping,
     Data,
     Disconnect,
+    Chat,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Error, Debug)]
 pub enum DeserializeError {
+    #[error("message type not supported")]
     UnsupportedMessageType,
-    Format(&'static str),
+    #[error("message too short for headers")]
+    MessageTooShort,
+    #[error("data length doesn't match payload size")]
+    InvalidPayloadLength,
+    #[error("failed to deserialize payload")]
+    DeserializePayload(#[from] bincode::Error),
 }
 
-impl TryFrom<u8> for MessageType {
+impl TryFrom<u8> for Message {
     type Error = DeserializeError;
 
     fn try_from(val: u8) -> Result<Self, Self::Error> {
         match val {
-            0 => Ok(MessageType::Ping),
-            1 => Ok(MessageType::Data),
-            2 => Ok(MessageType::Disconnect),
+            0 => Ok(Message::Ping),
+            1 => Ok(Message::Data),
+            2 => Ok(Message::Disconnect),
+            3 => Ok(Message::Chat),
             _ => Err(DeserializeError::UnsupportedMessageType),
         }
     }
 }
 
-impl From<MessageType> for u8 {
-    fn from(item: MessageType) -> u8 {
+impl From<Message> for u8 {
+    fn from(item: Message) -> u8 {
         match item {
-            MessageType::Ping => 0,
-            MessageType::Data => 1,
-            MessageType::Disconnect => 2,
+            Message::Ping => 0,
+            Message::Data => 1,
+            Message::Disconnect => 2,
+            Message::Chat => 3,
         }
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct Message {
+pub struct MessagePacket {
     header: Header,
-    payload: Vec<u8>,
+    payload: Message,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 struct Header {
-    msg_type: MessageType,
+    timestamp: u32,
+    version: u16,
     payload_size: u16,
 }
 
 impl Header {
-    const SIZE: usize = 3;
+    const SIZE: usize = 8;
 }
 
-impl Message {
+impl MessagePacket {
     /// Serialize a Message into a byte array
     pub fn serialize(&self) -> Vec<u8> {
-        let mut res = Vec::with_capacity(Header::SIZE + self.header.payload_size as usize);
+        let payload = &bincode::serialize(&self.payload).unwrap();
 
-        res.push(self.header.msg_type.into());
-        res.extend_from_slice(&self.header.payload_size.to_le_bytes()[0..2]);
-        res.extend_from_slice(&self.payload);
+        let mut res = Vec::with_capacity(Header::SIZE + payload.len());
+
+        res.extend_from_slice(&self.header.timestamp.to_le_bytes());
+        res.extend_from_slice(&self.header.version.to_le_bytes());
+        res.extend_from_slice(&self.header.payload_size.to_le_bytes());
+        res.extend_from_slice(payload);
 
         res
     }
@@ -66,22 +81,23 @@ impl Message {
     /// Deserialize a byte array into a Message
     pub fn deserialize(data: &[u8]) -> Result<Self, DeserializeError> {
         if data.len() < Header::SIZE {
-            return Err(DeserializeError::Format("Data too short to deserialize"));
+            return Err(DeserializeError::MessageTooShort);
         }
 
-        let msg_type = data[0].try_into()?;
-        let payload_size = u16::from_le_bytes([data[1], data[2]]);
+        let timestamp = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+        let version = u16::from_le_bytes([data[4], data[5]]);
+        let payload_size = u16::from_le_bytes([data[6], data[7]]);
 
         if data.len() != (payload_size as usize + Header::SIZE) {
-            return Err(DeserializeError::Format(
-                "Data length does not match payload size",
-            ));
+            return Err(DeserializeError::InvalidPayloadLength);
         }
-        let payload = data[Header::SIZE..].to_vec();
+        let payload_bytes = &data[Header::SIZE..];
+        let payload = bincode::deserialize(payload_bytes)?;
 
         Ok(Self {
             header: Header {
-                msg_type,
+                timestamp,
+                version,
                 payload_size,
             },
             payload,
@@ -96,47 +112,44 @@ mod tests {
     #[test]
     /// Basic serialization
     fn test_serialize() {
-        let message = Message {
+        let message = Message::Ping;
+
+        let mut serialized_payload = bincode::serialize(&message).unwrap();
+        let message = MessagePacket {
             header: Header {
-                msg_type: MessageType::Ping,
-                payload_size: 4,
+                timestamp: 12345678,
+                version: 1,
+                payload_size: serialized_payload.len() as u16,
             },
-            payload: vec![0xde, 0xad, 0xbe, 0xef],
+            payload: message,
         };
 
-        let serialized = message.serialize();
-        assert_eq!(serialized, vec![0, 4, 0, 0xde, 0xad, 0xbe, 0xef]);
-    }
+        #[rustfmt::skip]
+        let mut correct_serialized: Vec<u8> = vec![
+                78, 97, 188, 0, // timestamp (12345678 in little-endian)
+                1, 0, // version (1 in little-endian)
+                serialized_payload.len() as u8, 0, // payload size 
+            ];
+        correct_serialized.append(&mut serialized_payload); // payload
 
-    #[test]
-    /// Basic deserialization
-    fn test_deserialize_valid_data() {
-        let data = vec![0, 4, 0, 0xde, 0xad, 0xbe, 0xef];
-        let expected = Message {
-            header: Header {
-                msg_type: MessageType::Ping,
-                payload_size: 4,
-            },
-            payload: vec![0xde, 0xad, 0xbe, 0xef],
-        };
-
-        let deserialized = Message::deserialize(&data).expect("Deserialization failed");
-        assert_eq!(deserialized, expected);
+        // The expected serialized format includes the header and the payload.
+        assert_eq!(message.serialize(), correct_serialized);
     }
 
     #[test]
     /// Message serialized and deserialized should be equal
     fn test_serialize_and_deserialize() {
-        let message = Message {
+        let message = MessagePacket {
             header: Header {
-                msg_type: MessageType::Ping,
+                timestamp: 12345678,
+                version: 1,
                 payload_size: 4,
             },
-            payload: vec![0xde, 0xad, 0xbe, 0xef],
+            payload: Message::Ping,
         };
 
         let serialized = message.serialize();
-        let deserialized = Message::deserialize(&serialized).expect("Deserialization failed");
+        let deserialized = MessagePacket::deserialize(&serialized).expect("Deserialization failed");
 
         assert_eq!(deserialized, message);
     }
@@ -144,24 +157,33 @@ mod tests {
     #[test]
     /// Invalid data length
     fn test_deserialize_invalid_length() {
-        let data = vec![0, 4];
-        let result = Message::deserialize(&data);
+        let data = vec![
+            78, 97, 188, 0, // timestamp (12345678 in little-endian)
+            1, 0, // version (1 in little-endian)
+            4, 0, // payload size (4 in little-endian)
+        ];
+        let result = MessagePacket::deserialize(&data);
         assert!(result.is_err());
-        assert_eq!(
+        assert!(matches!(
             result.unwrap_err(),
-            DeserializeError::Format("Data too short to deserialize")
-        );
+            DeserializeError::InvalidPayloadLength
+        ));
     }
 
     #[test]
     /// Payload size says 4, but only 2 bytes provided
     fn test_deserialize_payload_size_mismatch() {
-        let data = vec![0, 4, 0, 0xde, 0xad];
-        let result = Message::deserialize(&data);
+        let data = vec![
+            78, 97, 188, 0, // timestamp (12345678 in little-endian)
+            1, 0, // version (1 in little-endian)
+            4, 0, // payload size (4 in little-endian)
+            0, 1, // Incomplete payload (only 2 bytes instead of 4)
+        ];
+        let result = MessagePacket::deserialize(&data);
         assert!(result.is_err());
-        assert_eq!(
+        assert!(matches!(
             result.unwrap_err(),
-            DeserializeError::Format("Data length does not match payload size")
-        );
+            DeserializeError::InvalidPayloadLength
+        ));
     }
 }
