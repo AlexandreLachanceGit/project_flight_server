@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-enum Message {
+pub enum Message {
     Ping,
     Data,
     Disconnect,
@@ -17,6 +17,8 @@ pub enum DeserializeError {
     MessageTooShort,
     #[error("data length doesn't match payload size")]
     InvalidPayloadLength,
+    #[error("message has wrong version")]
+    WrongVersion,
     #[error("failed to deserialize payload")]
     DeserializePayload(#[from] bincode::Error),
 }
@@ -100,6 +102,9 @@ impl MessagePacket {
         let version = u16::from_le_bytes([data[4], data[5]]);
         let payload_size = u16::from_le_bytes([data[6], data[7]]);
 
+        if version != Header::CURRENT_VERSION {
+            return Err(DeserializeError::WrongVersion);
+        }
         if data.len() != (payload_size as usize + Header::SIZE) {
             return Err(DeserializeError::InvalidPayloadLength);
         }
@@ -130,7 +135,7 @@ mod tests {
         let message = MessagePacket {
             header: Header {
                 timestamp: 12345678,
-                version: 1,
+                version: Header::CURRENT_VERSION,
                 payload_size: serialized_payload.len() as u16,
             },
             payload: message,
@@ -138,10 +143,10 @@ mod tests {
 
         #[rustfmt::skip]
         let mut correct_serialized: Vec<u8> = vec![
-                78, 97, 188, 0, // timestamp (12345678 in little-endian)
-                1, 0, // version (1 in little-endian)
-                serialized_payload.len() as u8, 0, // payload size 
-            ];
+            78, 97, 188, 0, // timestamp (12345678 in little-endian)
+            Header::CURRENT_VERSION as u8, 0, // version (in little-endian)
+            serialized_payload.len() as u8, 0, // payload size 
+        ];
         correct_serialized.append(&mut serialized_payload); // payload
 
         // The expected serialized format includes the header and the payload.
@@ -154,7 +159,7 @@ mod tests {
         let message = MessagePacket {
             header: Header {
                 timestamp: 12345678,
-                version: 1,
+                version: Header::CURRENT_VERSION,
                 payload_size: 4,
             },
             payload: Message::Ping,
@@ -169,9 +174,10 @@ mod tests {
     #[test]
     /// Invalid data length
     fn test_deserialize_invalid_length() {
+        #[rustfmt::skip]
         let data = vec![
             78, 97, 188, 0, // timestamp (12345678 in little-endian)
-            1, 0, // version (1 in little-endian)
+            Header::CURRENT_VERSION as u8, 0, // version (in little-endian)
             4, 0, // payload size (4 in little-endian)
         ];
         let result = MessagePacket::deserialize(&data);
@@ -184,10 +190,11 @@ mod tests {
 
     #[test]
     /// Payload size says 4, but only 2 bytes provided
+        #[rustfmt::skip]
     fn test_deserialize_payload_size_mismatch() {
         let data = vec![
             78, 97, 188, 0, // timestamp (12345678 in little-endian)
-            1, 0, // version (1 in little-endian)
+            Header::CURRENT_VERSION as u8, 0, // version (in little-endian)
             4, 0, // payload size (4 in little-endian)
             0, 1, // Incomplete payload (only 2 bytes instead of 4)
         ];

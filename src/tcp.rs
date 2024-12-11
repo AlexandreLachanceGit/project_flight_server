@@ -1,3 +1,4 @@
+use crate::message::{Message, MessagePacket};
 use crate::{id, thread_pool::ThreadPool};
 use std::{
     io::Write,
@@ -7,7 +8,9 @@ use std::{
 fn handle_client(mut stream: TcpStream) {
     let client_id = id::new_id();
     info!("Client {client_id} connected");
-    stream.write_all(&[1, 2, 3]).unwrap();
+    stream
+        .write_all(&MessagePacket::new(Message::Ping).serialize())
+        .unwrap();
 }
 
 pub fn start(nb_threads: usize, port: u16) -> std::io::Result<()> {
